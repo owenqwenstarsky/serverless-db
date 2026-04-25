@@ -6,18 +6,20 @@ COPY src ./src
 
 RUN cargo build --release
 
-FROM debian:bookworm-slim
+FROM python:3.11-slim
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY --from=builder /app/target/release/serverless-db /usr/local/bin/serverless-db
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
 
-ENV PORT=8080
+COPY --from=builder /app/target/release/serverless-db /usr/local/bin/serverless-db
+COPY handler.py /app/handler.py
+
+ENV SERVERLESS_DB_INTERNAL_PORT=8080
 ENV SERVERLESS_DB_DATA_DIR=/data
 
-EXPOSE 8080
-
-CMD ["serverless-db"]
+CMD ["python", "-u", "/app/handler.py"]

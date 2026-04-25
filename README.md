@@ -1,24 +1,21 @@
 # serverless-db
 
-`serverless-db` is a Rust HTTP service intended for Runpod load-balancing endpoints. It accepts SQL over HTTP, persists database/table state on disk, and currently supports a focused SQL subset that is enough to stand up a first serverless database prototype.
+`serverless-db` is a Rust database engine packaged for **Runpod queue-based Serverless endpoints**. Runpod receives queued jobs on `/run` or `/runsync`, a small Python handler adapts the job contract, and the actual SQL execution happens inside the Rust engine running in the same worker container.
 
-## Current surface
+## Queue API shape
 
-- `POST /sql`
-- `GET /health`
-- `GET /ping`
-- `GET /metrics`
+Runpod queue-based endpoints accept fixed operations like `/run` and `/runsync`. The request payload should place the SQL command inside the `input` object:
 
-Example request:
-
-```bash
-curl http://localhost:8080/sql \
-  -H 'content-type: application/json' \
-  -d '{
+```json
+{
+  "input": {
     "database": "app",
     "sql": "CREATE TABLE users (id INT PRIMARY KEY, name TEXT NOT NULL, active BOOL)"
-  }'
+  }
+}
 ```
+
+The worker returns the database response as the Runpod job output.
 
 ## Supported SQL
 
@@ -33,11 +30,13 @@ curl http://localhost:8080/sql \
 
 ## Local run
 
+Run the Rust engine directly:
+
 ```bash
 cargo run
 ```
 
-Then initialize a database:
+Then initialize a database against the local engine:
 
 ```bash
 curl http://localhost:8080/sql \
@@ -93,7 +92,7 @@ That keeps the storage engine easy to reason about while the API and execution p
 
 ## Runpod deployment notes
 
-Use a **load-balancing endpoint**, not a queue-based endpoint, because this service exposes custom HTTP routes instead of `/run` and `/runsync`.
+Use a **queue-based endpoint**. Runpod places jobs in a queue, invokes the Python handler with the standard `{"id": "...", "input": {...}}` payload, and the handler forwards the SQL request into the Rust engine inside the worker.
 
 Recommended initial settings:
 
@@ -103,7 +102,21 @@ Recommended initial settings:
 - single datacenter
 - set `SERVERLESS_DB_DATA_DIR=/runpod-volume/serverless-db` if using a network volume
 
-`/ping` is included because Runpod load-balancing workers use it for health checks.
+Queued endpoints use `/run` for async requests and `/runsync` for sync requests. Keep the SQL payload inside `input`.
+
+Example sync request:
+
+```bash
+curl -X POST "https://YOUR_ENDPOINT_ID.runpod.net/runsync" \
+  -H "content-type: application/json" \
+  -H "authorization: Bearer YOUR_RUNPOD_API_KEY" \
+  -d '{
+    "input": {
+      "database": "app",
+      "sql": "SHOW TABLES"
+    }
+  }'
+```
 
 ## Current limitations
 
